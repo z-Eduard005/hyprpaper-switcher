@@ -6,7 +6,7 @@ import { homedir } from "os";
 import { execSync } from "child_process";
 
 const HOME = homedir();
-const WALLPAPERS_DIR = join(HOME, "Pictures", "Wallpapers");
+const WALLPAPERS_DIR = join(HOME, ".local", "share", "backgrounds");
 const HYPRPAPER_CONF = join(HOME, ".config", "hypr", "hyprpaper.conf");
 const IMAGE_EXTS = [".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".avif"];
 
@@ -21,7 +21,7 @@ const loadWallpapers = (): string[] => {
 };
 
 const applyWallpaper = (filename: string): void => {
-  const tildePath = `~/Pictures/Wallpapers/${filename}`;
+  const tildePath = `~${WALLPAPERS_DIR.replace(HOME, "")}/${filename}`;
 
   try {
     let conf = readFileSync(HYPRPAPER_CONF, "utf-8");
@@ -29,9 +29,7 @@ const applyWallpaper = (filename: string): void => {
 
     writeFileSync(HYPRPAPER_CONF, conf, "utf-8");
 
-    execSync(
-      "systemctl --user disable --now hyprpaper.service && systemctl --user enable --now hyprpaper.service",
-    );
+    execSync("systemctl --user restart hyprpaper.service");
 
     showToast({
       style: Toast.Style.Success,
@@ -66,6 +64,7 @@ export default function WallpaperChooser() {
               key={filename}
               id={filename}
               title={filename}
+              icon={{ source: fullPath }}
               detail={
                 <List.Item.Detail
                   markdown={`![${filename}](file://${fullPath})`}
