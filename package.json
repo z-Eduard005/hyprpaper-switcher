@@ -18,7 +18,15 @@
       "mode": "view"
     }
   ],
-  "preferences": [],
+  "preferences": [
+    {
+      "name": "wallpaperDir",
+      "title": "Wallpapers folder",
+      "description": "Folder containing wallpaper images shown in the picker. Defaults to ~/.local/share/backgrounds.",
+      "type": "directory",
+      "required": false
+    }
+  ],
   "scripts": {
     "build": "vici build",
     "dev": "vici develop",
