@@ -11,7 +11,7 @@ import { useState } from "react";
 import { readdirSync, readFileSync, writeFileSync } from "fs";
 import { join, extname, isAbsolute } from "path";
 import { homedir } from "os";
-import { execSync } from "child_process";
+import { execFileSync, execSync, spawn } from "child_process";
 
 const HOME = homedir();
 const DEFAULT_WALLPAPERS_DIR = join(HOME, ".local", "share", "backgrounds");
@@ -49,7 +49,16 @@ const loadWallpapers = (): string[] => {
   }
 };
 
-type Backend = "hyprpaper" | "gnome";
+type Backend = "hyprpaper" | "gnome" | "awww";
+
+const commandExists = (cmd: string): boolean => {
+  try {
+    execSync(`command -v ${cmd}`, { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 const detectBackend = (): Backend => {
   const desktops = [
@@ -62,21 +71,11 @@ const detectBackend = (): Backend => {
     .toLowerCase();
 
   if (desktops.includes("gnome")) return "gnome";
+  if (commandExists("awww")) return "awww";
   if (desktops.includes("hyprland")) return "hyprpaper";
 
-  try {
-    execSync("command -v hyprctl");
-    return "hyprpaper";
-  } catch {
-    // no hyprctl — fall through
-  }
-
-  try {
-    execSync("command -v gsettings");
-    return "gnome";
-  } catch {
-    // neither tool found — default to hyprpaper, error toasts will guide
-  }
+  if (commandExists("hyprctl")) return "hyprpaper";
+  if (commandExists("gsettings")) return "gnome";
 
   return "hyprpaper";
 };
@@ -96,7 +95,7 @@ const applyHyprpaperWallpaper = (filename: string): void => {
 
     showToast({
       style: Toast.Style.Success,
-      title: "Hyprpaper allpaper updated",
+      title: "Hyprpaper wallpaper updated",
       message: tildePath,
     });
   } catch (err) {
@@ -142,9 +141,76 @@ const applyGnomeWallpaper = (fullPath: string): void => {
   }
 };
 
+const AWWW_TRANSITION_ARGS = [
+  "--transition-type",
+  "any",
+  "--transition-step",
+  "90",
+  "--transition-fps",
+  "60",
+];
+
+const isAwwwDaemonRunning = (): boolean => {
+  try {
+    execFileSync("awww", ["query"], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const ensureAwwwDaemon = (): boolean => {
+  if (isAwwwDaemonRunning()) return true;
+
+  try {
+    spawn("awww-daemon", { detached: true, stdio: "ignore" }).unref();
+  } catch {
+    return false;
+  }
+
+  for (let i = 0; i < 10; i++) {
+    execSync("sleep 0.3", { stdio: "ignore" });
+    if (isAwwwDaemonRunning()) return true;
+  }
+
+  return false;
+};
+
+const applyAwwwWallpaper = (fullPath: string): void => {
+  if (!ensureAwwwDaemon()) {
+    showToast({
+      style: Toast.Style.Failure,
+      title: "awww daemon not running",
+      message:
+        "Could not start awww-daemon. Launch it manually with: awww-daemon &",
+    });
+    return;
+  }
+
+  try {
+    execFileSync("awww", ["img", fullPath, ...AWWW_TRANSITION_ARGS], {
+      stdio: "ignore",
+    });
+
+    showToast({
+      style: Toast.Style.Success,
+      title: "awww wallpaper updated",
+      message: fullPath,
+    });
+  } catch (err) {
+    showToast({
+      style: Toast.Style.Failure,
+      title: "Failed to set awww wallpaper",
+      message: String(err),
+    });
+  }
+};
+
 const applyWallpaper = (filename: string, fullPath: string): void => {
   if (BACKEND === "gnome") {
     applyGnomeWallpaper(fullPath);
+  } else if (BACKEND === "awww") {
+    applyAwwwWallpaper(fullPath);
   } else {
     applyHyprpaperWallpaper(filename);
   }
