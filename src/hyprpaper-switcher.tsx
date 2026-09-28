@@ -82,7 +82,7 @@ const detectBackend = (): Backend => {
 
 const BACKEND: Backend = detectBackend();
 
-const applyHyprpaperWallpaper = (filename: string): void => {
+const applyHyprpaperWallpaper = (filename: string): boolean => {
   const tildePath = `~${WALLPAPERS_DIR.replace(HOME, "")}/${filename}`;
 
   try {
@@ -98,12 +98,16 @@ const applyHyprpaperWallpaper = (filename: string): void => {
       title: "Hyprpaper wallpaper updated",
       message: tildePath,
     });
+
+    return true;
   } catch (err) {
     showToast({
       style: Toast.Style.Failure,
       title: "Failed to update config",
       message: String(err),
     });
+
+    return false;
   }
 };
 
@@ -143,7 +147,7 @@ const applyGnomeWallpaper = (fullPath: string): void => {
 
 const AWWW_TRANSITION_ARGS = [
   "--transition-type",
-  "any",
+  "random",
   "--transition-step",
   "90",
   "--transition-fps",
@@ -176,7 +180,7 @@ const ensureAwwwDaemon = (): boolean => {
   return false;
 };
 
-const applyAwwwWallpaper = (fullPath: string): void => {
+const applyAwwwWallpaper = (fullPath: string): boolean => {
   if (!ensureAwwwDaemon()) {
     showToast({
       style: Toast.Style.Failure,
@@ -184,7 +188,7 @@ const applyAwwwWallpaper = (fullPath: string): void => {
       message:
         "Could not start awww-daemon. Launch it manually with: awww-daemon &",
     });
-    return;
+    return false;
   }
 
   try {
@@ -197,10 +201,62 @@ const applyAwwwWallpaper = (fullPath: string): void => {
       title: "awww wallpaper updated",
       message: fullPath,
     });
+
+    return true;
   } catch (err) {
     showToast({
       style: Toast.Style.Failure,
       title: "Failed to set awww wallpaper",
+      message: String(err),
+    });
+
+    return false;
+  }
+};
+
+const HYPRLOCK_CONF = join(HOME, ".config", "hypr", "hyprlock.conf");
+
+// Keeps the lock-screen wallpaper in sync on Hyprland backends.
+// Touches ONLY the `path` line(s) inside `background { }` blocks.
+// Missing file = nothing to do (silent). Missing block/path = created.
+const syncHyprlockBackground = (fullPath: string): void => {
+  let conf: string;
+  try {
+    conf = readFileSync(HYPRLOCK_CONF, "utf-8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code === "ENOENT") return;
+    showToast({
+      style: Toast.Style.Failure,
+      title: "Failed to sync hyprlock background",
+      message: String(err),
+    });
+    return;
+  }
+
+  if (/^\s*background\s*\{/m.test(conf)) {
+    conf = conf.replace(/(^\s*background\s*\{[^}]*?^\s*\})/gm, (block) => {
+      if (/^[ \t]*path[ \t]*=.*$/m.test(block)) {
+        return block.replace(/^[ \t]*path[ \t]*=[ \t]*.*$/m, (m) => {
+          const prefix = m.slice(0, m.indexOf("=") + 1);
+          return `${prefix} ${fullPath}`;
+        });
+      }
+      return block.replace(
+        /(^\s*background\s*\{\s*$)/m,
+        `$1\n    path = ${fullPath}`,
+      );
+    });
+  } else {
+    if (!conf.endsWith("\n") && conf.length > 0) conf += "\n";
+    conf += `\nbackground {\n    monitor =\n    path = ${fullPath}\n    blur_passes = 3\n}\n`;
+  }
+
+  try {
+    writeFileSync(HYPRLOCK_CONF, conf, "utf-8");
+  } catch (err) {
+    showToast({
+      style: Toast.Style.Failure,
+      title: "Failed to sync hyprlock background",
       message: String(err),
     });
   }
@@ -209,11 +265,15 @@ const applyAwwwWallpaper = (fullPath: string): void => {
 const applyWallpaper = (filename: string, fullPath: string): void => {
   if (BACKEND === "gnome") {
     applyGnomeWallpaper(fullPath);
-  } else if (BACKEND === "awww") {
-    applyAwwwWallpaper(fullPath);
-  } else {
-    applyHyprpaperWallpaper(filename);
+    return;
   }
+
+  const ok =
+    BACKEND === "awww"
+      ? applyAwwwWallpaper(fullPath)
+      : applyHyprpaperWallpaper(filename);
+
+  if (ok) syncHyprlockBackground(fullPath);
 };
 
 export default function WallpaperChooser() {
